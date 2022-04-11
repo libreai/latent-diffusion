@@ -44,7 +44,10 @@ def load_model_from_config(config, ckpt):
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
-    model.cuda()
+    
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    model = model.to(device)
+
     model.eval()
     return {"model": model}, global_step
 
@@ -117,7 +120,8 @@ def get_cond(mode, selected_path):
         c = rearrange(c, '1 c h w -> 1 h w c')
         c = 2. * c - 1.
 
-        c = c.to(torch.device("cuda"))
+        #c = c.to(torch.device("cuda"))
+        c = c.to(torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         example["LR_image"] = c
         example["image"] = c_up
 
