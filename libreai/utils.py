@@ -20,7 +20,7 @@ class Args:
     outdir = "outputs/txt2img-samples" # "dir to write results to"
     ddim_steps = "number of ddim sampling steps" # "number of ddim sampling steps"
     plms = True # "use plms sampling"
-    ddim_eta = 0.0 # "ddim eta (eta=0.0 corresponds to deterministic sampling"
+    ddim_eta = 0.0 # "ddim eta (eta=0.0 corresponds to deterministic sampling")
     n_iter = 1 # "sample this often"
     H = 256 # "image height, in pixel space"
     W = 256 # "image width, in pixel space"
@@ -31,7 +31,10 @@ class Args:
     
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
-    pl_sd = torch.load(ckpt, map_location="cpu")
+    map_location = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    pl_sd = torch.load(ckpt, map_location=map_location)
     sd = pl_sd["state_dict"]
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
@@ -43,10 +46,10 @@ def load_model_from_config(config, ckpt, verbose=False):
         print("unexpected keys:")
         print(u)
 
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    
+    model = model.half()
     model.to(device)
     model.eval()
+
     return model
 
     
@@ -59,6 +62,8 @@ def text2img(opt):
     model = model.to(device)
 
     if opt.plms:
+        # TODO: double check if we need to set ddim_eta = 0 for PLMS
+        opt.ddim_eta = 0
         sampler = PLMSSampler(model)
     else:
         sampler = DDIMSampler(model)
@@ -74,6 +79,8 @@ def text2img(opt):
     base_count = len(os.listdir(sample_path))
 
     all_samples=list()
+    all_samples_images = list()
+
     with torch.no_grad():
         with model.ema_scope():
             uc = None
@@ -97,7 +104,9 @@ def text2img(opt):
 
                 for x_sample in x_samples_ddim:
                     x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                    Image.fromarray(x_sample.astype(np.uint8)).save(os.path.join(sample_path, f"{base_count:04}.png"))
+                    image_vector = Image.fromarray(x_sample.astype(np.uint8))
+                    image_vector.save(os.path.join(sample_path, f"{base_count:04}.png"))
+                    all_samples_images.append(image_vector)
                     base_count += 1
                 all_samples.append(x_samples_ddim)
 
@@ -109,10 +118,9 @@ def text2img(opt):
 
     # to image
     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
-    image = Image.fromarray(grid.astype(np.uint8))
-    image.save(os.path.join(outpath, f'{prompt.replace(" ", "-")}.png'))
+    grid_image = Image.fromarray(grid.astype(np.uint8))
+    grid_image.save(os.path.join(outpath, f'{prompt.replace(" ", "-")}.png'))
 
-    print(f"Your samples are ready and waiting four you here: \n{outpath} \nEnjoy.")
-    
-    return image
-    
+    # print(f"Your samples are ready and waiting four you here: \n{outpath} \nEnjoy.")
+
+    return (grid_image, all_samples_images)
